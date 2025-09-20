@@ -14,11 +14,12 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # Add both common React ports
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 class UserIdRequest(BaseModel):
     user_id: str
 
@@ -26,23 +27,23 @@ class ProcessingResponse(BaseModel):
     success: bool
     message: str
     user_id: str
-    generated_goal: str = None
-    roadmap: Dict[str, Any] = None
-    error_details: str = None
+    generated_goal: Optional[str] = None
+    roadmap: Optional[Dict[str, Any]] = None
+    error_details: Optional[str] = None
 
 class AssessmentResponse(BaseModel):
     success: bool
     message: str
     user_id: str
-    assessments_generated: int = None
-    assessments_kept: int = None
-    assessments_removed: int = None
-    total_assessments: int = None
-    error_details: str = None
+    assessments_generated: Optional[int] = None
+    assessments_kept: Optional[int] = None
+    assessments_removed: Optional[int] = None
+    total_assessments: Optional[int] = None
+    error_details: Optional[str] = None
 
-# Initialize Firebase once when the module loads
+# FIXED Firebase initialization function
 def initialize_firebase():
-    """Initialize Firebase Admin SDK (only once)"""
+    """Initialize Firebase Admin SDK with multiple fallback methods"""
     try:
         # Check if Firebase is already initialized
         try:
@@ -50,24 +51,143 @@ def initialize_firebase():
             print("Firebase already initialized")
             return True
         except ValueError:
-            # Firebase not initialized, so initialize it
             pass
         
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = r"modell\pacific-vault-470814-s5-25cf6513ecef.json"
-        cred = credentials.Certificate(r"modell\pacific-vault-470814-s5-25cf6513ecef.json")
-        firebase_admin.initialize_app(cred)
-        print("Firebase initialized successfully")
-        return True
+        print("Starting Firebase initialization...")
+        
+        # Method 1: Environment variable with JSON string (for production)
+        service_account_key = os.environ.get('GOOGLE_SERVICE_ACCOUNT_KEY')
+        if service_account_key:
+            try:
+                print("Attempting Firebase initialization with environment variable...")
+                service_account_info = json.loads(service_account_key)
+                cred = credentials.Certificate(service_account_info)
+                firebase_admin.initialize_app(cred)
+                print("✅ Firebase initialized successfully using environment variable")
+                return True
+            except Exception as e:
+                print(f"❌ Failed with environment variable: {e}")
+        else:
+            print("No GOOGLE_SERVICE_ACCOUNT_KEY found in environment")
+        
+        # Method 2: Base64 encoded credentials (alternative for production)
+        encoded_key = os.environ.get('GOOGLE_SERVICE_ACCOUNT_BASE64')
+        if encoded_key:
+            try:
+                print("Attempting Firebase initialization with base64 credentials...")
+                import base64
+                decoded_key = base64.b64decode(encoded_key).decode('utf-8')
+                service_account_info = json.loads(decoded_key)
+                cred = credentials.Certificate(service_account_info)
+                firebase_admin.initialize_app(cred)
+                print("✅ Firebase initialized successfully using base64 credentials")
+                return True
+            except Exception as e:
+                print(f"❌ Failed with base64 credentials: {e}")
+        else:
+            print("No GOOGLE_SERVICE_ACCOUNT_BASE64 found in environment")
+        
+        # Method 3: File-based (for local development) - Fixed path handling
+        credential_paths = [
+            "pacific-vault-470814-s5-25cf6513ecef.json",  # Root directory
+            "modell/pacific-vault-470814-s5-25cf6513ecef.json",  # Unix-style path
+            os.path.join("modell", "pacific-vault-470814-s5-25cf6513ecef.json"),  # Cross-platform
+        ]
+        
+        for path in credential_paths:
+            if os.path.exists(path):
+                try:
+                    print(f"Attempting Firebase initialization with file: {path}")
+                    cred = credentials.Certificate(path)
+                    firebase_admin.initialize_app(cred)
+                    print(f"✅ Firebase initialized successfully using file: {path}")
+                    return True
+                except Exception as e:
+                    print(f"❌ Failed with {path}: {e}")
+        
+        # Method 4: Application Default Credentials (if running on Google Cloud)
+        try:
+            print("Attempting Firebase initialization with default credentials...")
+            firebase_admin.initialize_app()
+            print("✅ Firebase initialized successfully using default credentials")
+            return True
+        except Exception as e:
+            print(f"❌ Failed with default credentials: {e}")
+        
+        print("❌ All Firebase initialization methods failed")
+        return False
+        
     except Exception as e:
-        print(f"Error initializing Firebase: {e}")
+        print(f"❌ Error in Firebase initialization: {e}")
         return False
 
 # Initialize Firebase when the module loads
 firebase_initialized = initialize_firebase()
 if firebase_initialized:
     db = firestore.client()
+    print("✅ Firestore client created successfully")
 else:
     db = None
+    print("❌ Firestore client not created - Firebase initialization failed")
+
+@app.get("/debug-firebase")
+async def debug_firebase():
+    """Debug Firebase initialization issues"""
+    try:
+        # Check environment variables
+        json_key = os.environ.get('GOOGLE_SERVICE_ACCOUNT_KEY')
+        base64_key = os.environ.get('GOOGLE_SERVICE_ACCOUNT_BASE64')
+        google_creds = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+        
+        debug_info = {
+            "firebase_initialized": firebase_initialized,
+            "db_object_exists": db is not None,
+            "environment_variables": {
+                "GOOGLE_SERVICE_ACCOUNT_KEY_exists": bool(json_key),
+                "GOOGLE_SERVICE_ACCOUNT_KEY_length": len(json_key) if json_key else 0,
+                "GOOGLE_SERVICE_ACCOUNT_BASE64_exists": bool(base64_key),
+                "GOOGLE_APPLICATION_CREDENTIALS": google_creds,
+            },
+            "current_directory": os.getcwd(),
+            "files_in_directory": os.listdir('.') if os.path.exists('.') else [],
+        }
+        
+        # Check if modell directory exists
+        if os.path.exists('modell'):
+            debug_info["modell_directory_contents"] = os.listdir('modell')
+        
+        # Try to manually test Firebase initialization
+        test_result = "not_attempted"
+        try:
+            if json_key:
+                test_json = json.loads(json_key)
+                test_result = f"JSON parse successful - project_id: {test_json.get('project_id', 'missing')}"
+            else:
+                test_result = "No JSON key found in environment"
+        except Exception as e:
+            test_result = f"JSON parse failed: {str(e)}"
+        
+        debug_info["manual_test"] = test_result
+        
+        # Test database connection if Firebase is initialized
+        if firebase_initialized and db:
+            try:
+                # Try a simple query
+                test_ref = db.collection('user').limit(1)
+                docs = list(test_ref.get())
+                debug_info["database_test"] = f"✅ Database connection successful - found {len(docs)} documents"
+            except Exception as e:
+                debug_info["database_test"] = f"❌ Database connection failed: {str(e)}"
+        else:
+            debug_info["database_test"] = "❌ Cannot test - Firebase not initialized"
+        
+        return debug_info
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "firebase_initialized": firebase_initialized
+        }
 
 def get_user_skills(user_id: str) -> Dict[str, Any]:
     """Retrieves the skills map from a user document."""
@@ -676,7 +796,8 @@ async def health_check():
             "POST /process-user - Generate goal and roadmap",
             "POST /process-assessments - Sync assessments with skills",
             "POST /get-userid - Legacy endpoint",
-            "GET /health - Health check"
+            "GET /health - Health check",
+            "GET /debug-firebase - Debug Firebase connection"
         ]
     }
 
