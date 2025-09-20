@@ -1,20 +1,12 @@
-# Legacy compatible versions
-fastapi==0.68.0
-uvicorn==0.15.0
-pydantic==1.10.12
-
-# Use older LangChain versions compatible with Pydantic v1
-langchain==0.0.354
-langchain-core==0.0.13
-langchain-google-vertexai==0.0.11
-
-# Google Cloud and Firebase
-firebase-admin==6.2.0
-google-cloud-firestore==2.11.1
-google-auth==2.22.0
-
-# HTTP requests
-requests==2.31.0
-
-# Additional dependencies
-python-multipart==0.0.6
+# Remove version pins to let pip resolve compatible versions
+fastapi
+uvicorn
+pydantic>=2.0.0
+langchain
+langchain-core
+langchain-google-vertexai
+firebase-admin
+google-cloud-firestore
+google-auth
+requests
+python-multipart
